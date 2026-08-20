@@ -1,0 +1,1008 @@
+Absolutely. Let's treat this as a **real Data Engineering project requirement** and implement it step by step in your Databricks Free Edition.
+
+# Databricks Sales Data Engineering Project
+
+## 1. Project Requirement
+
+### Business requirement
+
+The business receives customer order data in a CSV file. We need to:
+
+1. Ingest the CSV file into Databricks.
+2. Store the original data safely.
+3. Perform data-quality checks.
+4. Remove duplicate/invalid records.
+5. Convert columns to correct data types.
+6. Create clean Silver data.
+7. Create business-ready Gold datasets.
+8. Calculate sales by city and product.
+9. Save all data as Delta tables.
+10. Run SQL queries for reporting.
+11. Eventually use the Gold data for dashboards/reporting.
+
+
+### Overall workflow
+
+```text
+CSV Source
+    ↓
+Databricks Volume
+    ↓
+BRONZE
+    ↓
+Data Quality / Transformation
+    ↓
+SILVER
+    ↓
+Business Aggregation
+    ↓
+GOLD
+    ↓
+SQL / Reporting
+```
+
+===================================================================================================
+
+# 2. What we are using
+
+For this project:
+
+| Component      | Technology                      |
+| -------------- | ------------------------------- |
+| Source         | CSV                             |
+| Storage        | Databricks Unity Catalog Volume |
+| Processing     | PySpark                         |
+| Storage format | Delta                           |
+| Architecture   | Bronze / Silver / Gold          |
+| Query language | SQL                             |
+| Platform       | Databricks Free Edition         |
+
+===================================================================================================
+
+# 3. Sample data
+
+I created a file containing **100 order records**.
+
+[Download the 100-record sample CSV](sandbox:/mnt/data/databricks_orders_100.csv)
+
+The file contains:
+
+```text
+order_id
+customer_id
+customer_name
+city
+product
+quantity
+unit_price
+order_date
+status
+total_amount
+```
+
+Example:
+
+```text
+ORD0001,CUST0007,Aarav,Mumbai,Monitor,1,12463,2026-03-04,Completed,12463
+```
+
+===================================================================================================
+# 4. Understand the data before starting
+
+Our source contains:
+
+```text
+Customer
+    ↓
+Order
+    ↓
+Product
+    ↓
+Quantity
+    ↓
+Price
+    ↓
+Total Amount
+```
+
+For example:
+
+```text
+Customer: Aarav
+City: Mumbai
+Product: Monitor
+Quantity: 1
+Unit Price: 12463
+Total: 12463
+```
+
+===================================================================================================
+
+# 5. Step 1 — Log in to Databricks
+
+Open your Databricks Free Edition workspace.
+
+You should have access to things such as:
+
+```text
+Workspace
+Catalog
+Compute
+SQL
+Notebooks
+```
+
+We will mainly use:
+
+**Catalog + Notebook**
+
+===================================================================================================
+
+# 6. Step 2 — Create the storage location
+
+Go to:
+
+**Catalog**
+
+Find:
+
+```text
+workspace
+   ↓
+default
+```
+
+Create a Volume:
+
+```text
+sales_volume
+```
+
+So the structure becomes:
+
+```text
+workspace
+   |
+   └── default
+          |
+          └── sales_volume
+```
+
+A Volume is where we'll put the original CSV.
+
+===================================================================================================
+
+# 7. Step 3 — Upload the CSV
+
+Download:
+
+[databricks_orders_100.csv](sandbox:/mnt/data/databricks_orders_100.csv)
+
+Then in Databricks:
+
+**Catalog → workspace → default → sales_volume**
+
+Choose the option to **upload files to the volume**.
+
+Upload:
+
+```text
+databricks_orders_100.csv
+```
+
+The file path should be:
+
+```text
+/Volumes/workspace/default/sales_volume/databricks_orders_100.csv
+```
+
+### Stop here and verify
+
+Make sure the file is visible inside the Volume.
+
+===================================================================================================
+
+# 8. Step 4 — Create a Notebook
+
+Go to:
+
+**New → Notebook**
+
+Name:
+
+```text
+Sales_ETL_Project
+```
+
+Language:
+
+```text
+Python
+```
+
+We will use PySpark.
+
+===================================================================================================
+
+# 9. Step 5 — Read the source data
+
+First notebook cell:
+
+```python
+file_path = "/Volumes/workspace/default/sales_volume/databricks_orders_100.csv"
+
+df = spark.read \
+    .option("header", "true") \
+    .option("inferSchema", "true") \
+    .csv(file_path)
+
+display(df)
+```
+
+### Expected output
+
+You should see approximately:
+
+```text
+order_id  customer_id  customer_name  city       product ...
+ORD0001   CUST0007     Aarav          Mumbai     Monitor
+ORD0002   CUST0014     Vivaan         Hyderabad  Monitor
+ORD0003   CUST0027     Aditya         Hubli      Mouse
+...
+```
+
+There should be:
+
+**100 records**
+
+===================================================================================================
+
+# 10. Step 6 — Validate the source
+
+Run:
+
+```python
+df.count()
+```
+
+Expected:
+
+```text
+100
+```
+
+Check columns:
+
+```python
+df.columns
+```
+
+Expected:
+
+```text
+[
+'order_id',
+'customer_id',
+'customer_name',
+'city',
+'product',
+'quantity',
+'unit_price',
+'order_date',
+'status',
+'total_amount'
+]
+```
+
+Check the schema:
+
+```python
+df.printSchema()
+```
+
+This is important because a Data Engineer needs to understand the datatype of each column.
+
+===================================================================================================
+# 11. Step 7 — Requirement: Create Bronze layer
+
+### What is Bronze?
+
+Bronze contains the **raw/source data**.
+
+We don't perform major transformations here.
+
+```text
+CSV
+ ↓
+Bronze
+```
+
+Save the data:
+
+```python
+df.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .saveAsTable("orders_bronze")
+```
+
+Now you have:
+
+```text
+orders_bronze
+```
+
+===================================================================================================
+
+# 12. Step 8 — Verify Bronze
+
+Run:
+
+```sql
+SELECT COUNT(*) AS total_records
+FROM orders_bronze;
+```
+
+Expected:
+
+```text
+100
+```
+
+View all records:
+
+```sql
+SELECT *
+FROM orders_bronze;
+```
+
+You can also check:
+
+```sql
+SELECT *
+FROM orders_bronze
+LIMIT 10;
+```
+
+===================================================================================================
+
+# 13. Bronze requirement
+
+Our requirement is:
+
+> Store the source data in Databricks without losing the original information.
+
+So:
+
+```text
+Source CSV
+    ↓
+orders_bronze
+```
+
+Bronze should contain the detailed records.
+
+===================================================================================================
+
+# 14. Step 9 — Data Quality Requirements
+
+Now we move to Silver.
+
+Before creating Silver, define our data-quality rules.
+
+### Rule 1 — `order_id` cannot be NULL
+
+```text
+order_id IS NOT NULL
+```
+
+### Rule 2 — `customer_id` cannot be NULL
+
+```text
+customer_id IS NOT NULL
+```
+
+### Rule 3 — Product cannot be NULL
+
+```text
+product IS NOT NULL
+```
+
+### Rule 4 — Order ID should be unique
+
+Remove duplicates.
+
+### Rule 5 — Quantity must be greater than 0
+
+```text
+quantity > 0
+```
+
+### Rule 6 — Unit price must be greater than 0
+
+```text
+unit_price > 0
+```
+
+### Rule 7 — Order date should be a proper date
+
+Convert:
+
+```text
+String → Date
+```
+
+===================================================================================================
+
+# 15. Step 10 — Read Bronze
+
+```python
+bronze_df = spark.table("orders_bronze")
+```
+
+===================================================================================================
+
+# 16. Step 11 — Remove duplicates
+
+```python
+silver_df = bronze_df.dropDuplicates(["order_id"])
+```
+
+Why?
+
+Suppose the source has:
+
+```text
+ORD0001
+ORD0001
+ORD0002
+```
+
+We don't want two records for the same order.
+
+After:
+
+```text
+ORD0001
+ORD0002
+```
+
+===================================================================================================
+
+# 17. Step 12 — Convert order date
+
+```python
+from pyspark.sql.functions import col
+
+silver_df = silver_df.withColumn(
+    "order_date",
+    col("order_date").cast("date")
+)
+```
+
+Now:
+
+```text
+"2026-03-04"
+```
+
+becomes a proper:
+
+```text
+DATE
+```
+
+===================================================================================================
+
+# 18. Step 13 — Validate quantity
+
+```python
+silver_df = silver_df.filter(
+    col("quantity") > 0
+)
+```
+
+This removes invalid records such as:
+
+```text
+quantity = 0
+quantity = -2
+```
+
+===================================================================================================
+
+# 19. Step 14 — Validate price
+
+```python
+silver_df = silver_df.filter(
+    col("unit_price") > 0
+)
+```
+
+This prevents invalid prices:
+
+```text
+0
+-500
+```
+
+===================================================================================================
+
+# 20. Step 15 — Remove NULL values
+
+```python
+silver_df = silver_df.dropna(
+    subset=[
+        "order_id",
+        "customer_id",
+        "product"
+    ]
+)
+```
+
+===================================================================================================
+
+# 21. Step 16 — Check Silver
+
+Run:
+
+```python
+display(silver_df)
+```
+
+Check count:
+
+```python
+silver_df.count()
+```
+
+For our generated sample, you should normally still have:
+
+```text
+100
+```
+
+because the sample was generated without intentional invalid/duplicate records.
+
+===================================================================================================
+
+# 22. Step 17 — Save Silver
+
+Now save the cleaned data:
+
+```python
+silver_df.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .saveAsTable("orders_silver")
+```
+
+You now have:
+
+```text
+orders_bronze
+orders_silver
+```
+
+===================================================================================================
+
+# 23. What is Silver?
+
+Silver is:
+
+> Clean, validated, standardized data that is ready for business transformation.
+
+The flow is:
+
+```text
+BRONZE
+  ↓
+Remove duplicates
+  ↓
+Validate NULLs
+  ↓
+Validate quantity
+  ↓
+Validate price
+  ↓
+Convert date
+  ↓
+SILVER
+```
+
+===================================================================================================
+
+# 24. Step 18 — Business Requirement
+
+Now imagine the business asks:
+
+### Requirement A
+
+> "Show total sales for each city."
+
+### Requirement B
+
+> "Show total sales for each product."
+
+### Requirement C
+
+> "Show the number of orders."
+
+### Requirement D
+
+> "Show the top customers."
+
+These are Gold-layer requirements.
+
+===================================================================================================
+
+# 25. Step 19 — Gold: Sales by City
+
+```python
+from pyspark.sql.functions import sum, count
+
+gold_city_sales = silver_df.groupBy("city").agg(
+    sum("total_amount").alias("total_sales"),
+    count("order_id").alias("total_orders")
+)
+
+display(gold_city_sales)
+```
+
+Output will look like:
+
+```text
+city          total_sales    total_orders
+------------------------------------------
+Bangalore     XXXXXXX        XX
+Belgaum       XXXXXXX        XX
+Bidar         XXXXXXX        XX
+Chennai       XXXXXXX        XX
+Delhi         XXXXXXX        XX
+...
+```
+
+===================================================================================================
+
+# 26. Step 20 — Save City Gold
+
+```python
+gold_city_sales.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .saveAsTable("sales_gold_by_city")
+```
+
+Now it is permanently saved as a Delta table.
+
+===================================================================================================
+
+# 27. Step 21 — Gold: Sales by Product
+
+```python
+gold_product_sales = silver_df.groupBy("product").agg(
+    sum("quantity").alias("total_quantity"),
+    sum("total_amount").alias("total_sales"),
+    count("order_id").alias("total_orders")
+)
+
+display(gold_product_sales)
+```
+
+Output:
+
+```text
+product       total_quantity    total_sales    total_orders
+------------------------------------------------------------
+Laptop        XX                XXXXXXX        XX
+Mobile        XX                XXXXXXX        XX
+Monitor       XX                XXXXXXX        XX
+Mouse         XX                XXXXXXX        XX
+...
+```
+
+Save it:
+
+```python
+gold_product_sales.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .saveAsTable("sales_gold_by_product")
+```
+
+===================================================================================================
+
+# 28. Step 22 — Top 10 Customers
+
+Requirement:
+
+> Find customers who spent the most money.
+
+```python
+from pyspark.sql.functions import sum
+
+top_customers = silver_df.groupBy(
+    "customer_id",
+    "customer_name"
+).agg(
+    sum("total_amount").alias("total_spent")
+).orderBy(
+    col("total_spent").desc()
+).limit(10)
+
+display(top_customers)
+```
+
+===================================================================================================
+
+# 29. Step 23 — Save Top Customers
+
+```python
+top_customers.write \
+    .format("delta") \
+    .mode("overwrite") \
+    .saveAsTable("sales_gold_top_customers")
+```
+
+Now we have another Gold table.
+
+===================================================================================================
+
+# 30. Final Databricks structure
+
+At the end you should have:
+
+```text
+workspace
+│
+└── default
+    │
+    ├── sales_volume
+    │     └── databricks_orders_100.csv
+    │
+    ├── orders_bronze
+    │
+    ├── orders_silver
+    │
+    ├── sales_gold_by_city
+    │
+    ├── sales_gold_by_product
+    │
+    └── sales_gold_top_customers
+```
+
+===================================================================================================
+
+# 31. Final architecture
+
+Your complete project is:
+
+```text
+                    SOURCE
+                      │
+                      ▼
+          databricks_orders_100.csv
+                      │
+                      ▼
+             Unity Catalog Volume
+                      │
+                      ▼
+              ┌──────────────┐
+              │    BRONZE    │
+              │orders_bronze │
+              └──────┬───────┘
+                     │
+               DATA QUALITY
+                     │
+       ┌─────────────┼──────────────┐
+       │             │              │
+    Duplicates     NULLs       Invalid values
+       │             │              │
+       └─────────────┼──────────────┘
+                     │
+                     ▼
+              ┌──────────────┐
+              │    SILVER    │
+              │orders_silver │
+              └──────┬───────┘
+                     │
+              BUSINESS LOGIC
+                     │
+        ┌────────────┼─────────────┐
+        │            │             │
+        ▼            ▼             ▼
+   By City      By Product    Top Customers
+        │            │             │
+        ▼            ▼             ▼
+ sales_gold_    sales_gold_    sales_gold_
+ by_city        by_product     top_customers
+        │            │             │
+        └────────────┼─────────────┘
+                     ▼
+                SQL / BI
+```
+
+===================================================================================================
+
+# 32. SQL reporting
+
+Once the Gold tables exist, you can use SQL.
+
+### Total revenue
+
+```sql
+SELECT
+    SUM(total_amount) AS total_revenue
+FROM orders_silver;
+```
+
+### Total orders
+
+```sql
+SELECT
+    COUNT(*) AS total_orders
+FROM orders_silver;
+```
+
+### Completed orders
+
+```sql
+SELECT
+    COUNT(*) AS completed_orders
+FROM orders_silver
+WHERE status = 'Completed';
+```
+
+### Cancelled orders
+
+```sql
+SELECT
+    COUNT(*) AS cancelled_orders
+FROM orders_silver
+WHERE status = 'Cancelled';
+```
+
+### Sales by city
+
+```sql
+SELECT *
+FROM sales_gold_by_city
+ORDER BY total_sales DESC;
+```
+
+### Sales by product
+
+```sql
+SELECT *
+FROM sales_gold_by_product
+ORDER BY total_sales DESC;
+```
+
+### Top customers
+
+```sql
+SELECT *
+FROM sales_gold_top_customers
+ORDER BY total_spent DESC;
+```
+
+===================================================================================================
+# 33. How all data is saved
+
+This is very important for your understanding.
+
+### Original file
+
+Saved in:
+
+```text
+/Volumes/workspace/default/sales_volume/
+```
+
+### Raw data
+
+Saved as:
+
+```text
+orders_bronze
+```
+
+### Cleaned data
+
+Saved as:
+
+```text
+orders_silver
+```
+
+### Business data
+
+Saved as:
+
+```text
+sales_gold_by_city
+sales_gold_by_product
+sales_gold_top_customers
+```
+
+So you're **not losing the 100 detailed records**.
+
+```text
+CSV
+ │
+ ├──────────────► Original file
+ │
+ ▼
+Bronze ─────────► Raw 100 records
+ │
+ ▼
+Silver ─────────► Clean 100 records
+ │
+ ├──────────────► Gold City
+ │
+ ├──────────────► Gold Product
+ │
+ └──────────────► Gold Customers
+```
+
+===================================================================================================
+
+# 34. What you should be able to explain in an interview
+
+If an interviewer asks:
+
+### "Explain your Databricks project."
+
+You can say:
+
+> "I worked on a sales data pipeline in Databricks. The source data was provided as CSV files. I uploaded the files into a Unity Catalog Volume and ingested them into a Bronze Delta table. In the Silver layer, I performed data-quality transformations such as duplicate removal, null validation, datatype conversion, and validation of quantity and price. Then I created Gold datasets containing business aggregations such as sales by city, sales by product, and top customers. The final datasets were stored as Delta tables and queried using Databricks SQL for reporting."
+
+That's the basic **end-to-end Data Engineering story**.
+
+---
+
+## Your implementation order
+
+Don't try to do everything at once. Follow this exact order:
+
+**Phase 1 — Source**
+
+* [ ] Download CSV
+* [ ] Create `sales_volume`
+* [ ] Upload CSV
+
+**Phase 2 — Bronze**
+
+* [ ] Create Notebook
+* [ ] Read CSV
+* [ ] Check 100 records
+* [ ] Check schema
+* [ ] Create `orders_bronze`
+
+**Phase 3 — Silver**
+
+* [ ] Read Bronze
+* [ ] Remove duplicates
+* [ ] Handle NULLs
+* [ ] Convert date
+* [ ] Validate quantity
+* [ ] Validate price
+* [ ] Create `orders_silver`
+
+**Phase 4 — Gold**
+
+* [ ] Create sales by city
+* [ ] Create sales by product
+* [ ] Create top customers
+* [ ] Save Gold tables
+
+**Phase 5 — Reporting**
+
+* [ ] Run SQL
+* [ ] Check total revenue
+* [ ] Check total orders
+* [ ] Check city sales
+* [ ] Check product sales
+* [ ] Check top customers
+
+**Start with only Phase 1 first.** Once your CSV is uploaded to `sales_volume`, the next step is the **Bronze implementation**. This way you learn not just *what code to copy*, but **why each layer and transformation is required**.
